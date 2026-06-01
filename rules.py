@@ -16,6 +16,8 @@ BUDGET_MAP = {
     "Premium": (12000, 20000)
 }
 
+BUDGET_TIERS = [2999, 5999, 8999, 12999, 20000]
+
 
 # -----------------------------
 # Soft budget penalty function
@@ -54,7 +56,8 @@ def apply_rules(profile):
         1: 0.40,
         2: 0.30,
         3: 0.20,
-        4: 0.10
+        4: 0.10,
+        5: 0.05
     }
 
     # -----------------------------
@@ -66,6 +69,7 @@ def apply_rules(profile):
     weights["ram"] += performance_weight * 0.15
     weights["storage"] += rank_weight.get(profile["storage_rank"], 0)
     weights["battery"] += rank_weight.get(profile["battery_rank"], 0)
+    weights["portability"] += rank_weight.get(profile.get("portability_rank", 4), 0)
 
     # cost sensitivity (higher rank = more cost concern)
     weights["price"] += rank_weight.get(profile["cost_rank"], 0)
@@ -81,6 +85,7 @@ def apply_rules(profile):
     weights["battery"] += (profile.get("battery_importance", 1) - 1) * importance_scale
     weights["storage"] += (profile.get("storage_importance", 1) - 1) * importance_scale
     weights["display"] += (profile.get("display_importance", 1) - 1) * importance_scale
+    weights["portability"] += (profile.get("portability_importance", 1) - 1) * importance_scale
 
     # -----------------------------
     # Optional preferences
@@ -120,6 +125,21 @@ def apply_rules(profile):
         weights["display"] += 0.3
         reasons.append("Display quality is highly important.")
 
+    if profile.get("portability_importance", 0) >= 4:
+        weights["portability"] += 0.3
+        reasons.append("Portability is highly important.")
+
+    prefer_apple_for_portability = (
+        not profile.get("gaming")
+        and (
+            profile.get("travel")
+            or profile.get("battery_rank") == 1
+            or profile.get("portability_importance", 0) >= 4
+        )
+    )
+    if prefer_apple_for_portability:
+        reasons.append("Non-gaming portability profile → Apple efficiency favored.")
+
     # -----------------------------
     # Budget handling (IMPORTANT)
     # -----------------------------
@@ -148,4 +168,28 @@ def apply_rules(profile):
         for key in ["cpu", "gpu", "ram", "storage", "battery", "display", "portability", "price"]:
             weights[key] = max(weights[key], 0.0) / total_weight
 
-    return weights, reasons
+    budget_tier = 3
+    for index, threshold in enumerate(BUDGET_TIERS, start=1):
+        if budget_max <= threshold:
+            budget_tier = index
+            break
+
+    rule_context = {
+        "user_processing": profile.get("cpu_importance", 1),
+        "user_graphics": profile.get("gpu_importance", 1),
+        "user_display": profile.get("display_importance", 1),
+        "user_portability": profile.get("portability_importance", 1),
+        "user_storage": profile.get("storage_importance", 1),
+        "user_budget_tier": budget_tier,
+        "performance_rank": profile.get("performance_rank", 4),
+        "cost_rank": profile.get("cost_rank", 4),
+        "portability_rank": profile.get("portability_rank", 4),
+        "user_gaming": profile.get("gaming", False),
+        "user_travel": profile.get("travel", False),
+        "prefer_apple_for_portability": prefer_apple_for_portability,
+        "budget_min": budget_min,
+        "budget_max": budget_max,
+        "budget_tiers": BUDGET_TIERS
+    }
+
+    return weights, reasons, rule_context

@@ -17,7 +17,7 @@ def budget_penalty(price, budget_min, budget_max):
 # -----------------------------
 # Main recommendation engine
 # -----------------------------
-def recommend_laptop(df, weights):
+def recommend_laptop(df, weights, rule_context=None):
 
     def normalize(value, min_value, max_value):
         if max_value == min_value:
@@ -36,6 +36,19 @@ def recommend_laptop(df, weights):
 
         return battery_life
 
+    def to_tier(value, min_value, max_value):
+        if max_value == min_value:
+            return 3
+        normalized = (value - min_value) / (max_value - min_value)
+        tier = int(round(normalized * 4)) + 1
+        return max(1, min(5, tier))
+
+    def price_to_tier(price, tiers):
+        for index, threshold in enumerate(tiers, start=1):
+            if price <= threshold:
+                return index
+        return len(tiers)
+
     cpu_min, cpu_max = df["CPU_Score"].min(), df["CPU_Score"].max()
     gpu_min, gpu_max = df["GPU_Score"].min(), df["GPU_Score"].max()
     ram_min, ram_max = df["RAM_GB"].min(), df["RAM_GB"].max()
@@ -47,6 +60,22 @@ def recommend_laptop(df, weights):
 
     battery_life_scores = df.apply(estimate_battery_life, axis=1)
     battery_life_min, battery_life_max = battery_life_scores.min(), battery_life_scores.max()
+
+    rule_context = rule_context or {}
+
+    user_processing = rule_context.get("user_processing", 1)
+    user_graphics = rule_context.get("user_graphics", 1)
+    user_display = rule_context.get("user_display", 1)
+    user_portability = rule_context.get("user_portability", 1)
+    user_storage = rule_context.get("user_storage", 1)
+    user_budget_tier = rule_context.get("user_budget_tier", 3)
+    performance_rank = rule_context.get("performance_rank", 4)
+    cost_rank = rule_context.get("cost_rank", 4)
+    portability_rank = rule_context.get("portability_rank", 4)
+    user_gaming = rule_context.get("user_gaming", False)
+    budget_tiers = rule_context.get("budget_tiers", [2999, 5999, 8999, 12999, 20000])
+    budget_max = rule_context.get("budget_max", None)
+    prefer_apple_for_portability = rule_context.get("prefer_apple_for_portability", False)
 
     recommendations = []
 
@@ -81,6 +110,95 @@ def recommend_laptop(df, weights):
             - price_norm * weights["price"]
         )
 
+        rule_score = 0.0
+        conflict_score = 0.0
+        conflict_warning = False
+
+        processing_tier = to_tier(row["CPU_Score"], cpu_min, cpu_max)
+        graphics_tier = to_tier(row["GPU_Score"], gpu_min, gpu_max)
+        display_tier = to_tier(row["Display_Score"], display_min, display_max)
+        portability_tier = to_tier(portability_norm, 0.0, 1.0)
+        storage_tier = to_tier(row["Storage_GB"], storage_min, storage_max)
+        price_tier = price_to_tier(row["Price_Num"], budget_tiers)
+
+        if user_processing >= 4:
+            if processing_tier == 5:
+                rule_score += 5.0
+            elif processing_tier == 4:
+                rule_score += 3.0
+            elif processing_tier <= 2:
+                rule_score -= 8.0
+
+        if user_gaming or user_graphics >= 4:
+            if graphics_tier >= 4:
+                rule_score += 6.0
+            elif graphics_tier == 3:
+                rule_score += 3.0
+            elif graphics_tier == 1:
+                rule_score -= 15.0
+
+            gpu_name = str(row.get("GPU", "")).upper()
+            if "RTX" not in gpu_name and graphics_tier <= 2:
+                conflict_score -= 100.0
+                conflict_warning = True
+
+        if user_display >= 4:
+            if display_tier == 5:
+                rule_score += 4.0
+            elif display_tier == 3:
+                rule_score += 1.5
+            elif display_tier == 1:
+                rule_score -= 5.0
+
+        if user_portability >= 4:
+            if portability_tier == 5:
+                rule_score += 5.0
+            elif portability_tier == 4:
+                rule_score += 3.0
+            elif portability_tier == 1:
+                rule_score -= 10.0
+
+        if user_storage >= 4:
+            if storage_tier >= user_storage:
+                rule_score += 2.5
+            else:
+                rule_score -= 3.0
+
+        if (user_processing >= 4 or user_graphics >= 4) and user_budget_tier <= 2:
+            if cost_rank < performance_rank:
+                if price_tier > user_budget_tier:
+                    conflict_score -= 50.0
+            else:
+                allowed_budget = min(user_budget_tier + 1, len(budget_tiers))
+                if price_tier == allowed_budget:
+                    conflict_score += 5.0
+                conflict_warning = True
+
+        if budget_max is not None and row["Price_Num"] > budget_max:
+            conflict_score -= 40.0
+            conflict_warning = True
+
+        if user_graphics >= 4 and user_portability >= 4:
+            cpu_name = str(row.get("CPU", "")).upper()
+            gpu_name = str(row.get("GPU", "")).upper()
+            if portability_rank < performance_rank:
+                if portability_tier == 1:
+                    conflict_score -= 15.0
+                if "APPLE" in cpu_name or "IRIS" in gpu_name or graphics_tier <= 2:
+                    conflict_score += 4.0
+            else:
+                if graphics_tier == 5:
+                    conflict_score += 6.0
+                if graphics_tier <= 2:
+                    conflict_score -= 20.0
+
+        if prefer_apple_for_portability and not user_gaming:
+            cpu_name = str(row.get("CPU", "")).upper()
+            if "APPLE" in cpu_name:
+                conflict_score += 10.0
+
+        score += (rule_score + conflict_score) / 10.0
+
         # -----------------------------
         # 💡 BUDGET PENALTY (NEW FIX)
         # -----------------------------
@@ -106,6 +224,10 @@ def recommend_laptop(df, weights):
             "GPU": row["GPU"],
             "Display": row["Display"],
             "Price": row["Price"],
+
+            "RuleScore": round(rule_score, 2),
+            "ConflictScore": round(conflict_score, 2),
+            "ConflictWarning": conflict_warning,
 
             # optional debug (VERY useful for tuning)
             "Penalty": round(price_penalty, 3)

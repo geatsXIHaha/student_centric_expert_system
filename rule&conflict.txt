@@ -1,0 +1,154 @@
+RULE 0: Input Preconditions
+Trigger: Recommend button pressed.
+Constraint: At least one ranked priority must be selected.
+System Action: If no ranks selected, show warning and stop.
+
+RULE 1: Ranking Weights (Base Preferences)
+Input: User ranking for Performance, Storage, Battery, Portability, Cost.
+Mapping: rank_weight = {1: 0.40, 2: 0.30, 3: 0.20, 4: 0.10, 5: 0.05}
+Logic:
+- Performance rank splits into CPU (50%), GPU (35%), RAM (15).
+- Storage rank applies to Storage weight.
+- Battery rank applies to Battery weight.
+- Portability rank applies to Portability weight.
+- Cost rank applies to Price weight.
+
+RULE 2: Slider Importance Weights
+Trigger: User importance sliders (1-5).
+Scale: Each slider adds (slider - 1) * 0.08 to its weight.
+Applied to: CPU, GPU, RAM, Battery, Storage, Display, Portability.
+
+RULE 3: Gaming Preference
+Trigger: User_Gaming == True.
+Logic:
+- Add +0.8 to GPU weight.
+- Add +0.2 to CPU weight.
+
+RULE 4: Content Creation Preference
+Trigger: User_ContentCreation == True.
+Logic:
+- Add +0.4 CPU, +0.3 GPU, +0.3 RAM, +0.3 Display, +0.2 Storage.
+
+RULE 5: Travel Preference
+Trigger: User_Travel == True.
+Logic:
+- Add +0.4 Battery, +0.35 Portability, +0.1 Price.
+
+RULE 6: Battery Priority Boost
+Trigger: Battery importance >= 4.
+Logic: Add +0.4 Battery.
+
+RULE 7: Battery Rank #1 Portability Boost
+Trigger: Battery ranked #1.
+Logic: Add +0.25 Portability.
+
+RULE 8: Storage Priority Boost
+Trigger: Storage importance >= 4.
+Logic: Add +0.4 Storage.
+
+RULE 9: Display Priority Boost
+Trigger: Display importance >= 4.
+Logic: Add +0.3 Display.
+
+RULE 10: Portability Priority Boost
+Trigger: Portability importance >= 4.
+Logic: Add +0.3 Portability.
+
+RULE 11: Non-Gaming Portability Apple Preference
+Trigger: (Gaming == False) AND (Travel == True OR Battery rank == 1 OR Portability importance >= 4).
+Logic: Flag prefer_apple_for_portability = True.
+
+RULE 12: Weight Normalization
+Trigger: After all weight additions.
+Logic: All weights are normalized to sum to 1.0 (non-negative only).
+
+RULE 13: Budget Range Mapping
+Trigger: User budget category selection.
+Logic: Map label to (budget_min, budget_max) and store in context.
+
+SCORING BASE: Weighted Normalized Score
+Each laptop is scored by:
+- CPU, GPU, RAM, Storage, Battery Life, Display, Portability are normalized to [0,1].
+- Price is normalized to [0,1] and subtracts from score.
+
+Battery Life Estimate:
+- battery_life = Battery_Wh / (CPU_factor * GPU_factor * RAM_factor)
+- Apple CPU gets +25% bonus to battery_life.
+
+Portability Estimate:
+- portability = 1 - normalized display size
+- RTX GPUs apply a 0.7 multiplier (heavier gaming rigs).
+
+RULE 14: Soft Budget Penalty
+Trigger: Price > budget_max.
+Logic: score -= log1p((Price - budget_max) / 1000) * 0.6
+
+RULE 15: Hard Over-Budget Penalty
+Trigger: Price > budget_max.
+Logic: conflict_score -= 40 and conflict_warning = True.
+
+RULES 16-20: Rule-Based Point Adjustments (Hybrid)
+These are added on top of the weighted score.
+
+RULE 16: Processing Intensity
+Trigger: User_CPU importance >= 4.
+Logic (using CPU tier 1-5):
+- tier 5: +5
+- tier 4: +3
+- tier <=2: -8
+
+RULE 17: Dedicated Graphics Enforcement
+Trigger: User_Gaming == True OR User_GPU importance >= 4.
+Logic (using GPU tier 1-5):
+- tier >=4: +6
+- tier ==3: +3
+- tier ==1: -15
+- If GPU is not RTX and tier <=2: conflict_score -= 100 and conflict_warning = True
+
+RULE 18: Display Quality
+Trigger: User_Display importance >= 4.
+Logic (Display tier 1-5):
+- tier 5: +4
+- tier 3: +1.5
+- tier 1: -5
+
+RULE 19: Portability Match
+Trigger: User_Portability importance >= 4.
+Logic (Portability tier 1-5):
+- tier 5: +5
+- tier 4: +3
+- tier 1: -10
+
+RULE 20: Storage Match
+Trigger: User_Storage importance >= 4.
+Logic (Storage tier 1-5):
+- If storage tier >= user storage importance: +2.5
+- Else: -3
+
+CONFLICT 1: High Performance vs Low Budget
+Trigger: (User_CPU importance >= 4 OR User_GPU importance >= 4) AND User_Budget_Tier <= 2.
+Decision Logic:
+- If Cost rank is higher priority than Performance rank:
+  - If laptop price tier > user budget tier: conflict_score -= 50.
+- Else (Performance priority wins):
+  - Allow budget tier + 1, add +5 if laptop is in that tier.
+  - conflict_warning = True.
+
+CONFLICT 2: Graphics vs Portability
+Trigger: User_GPU importance >= 4 AND User_Portability importance >= 4.
+Decision Logic:
+- If Portability rank higher priority than Performance rank:
+  - If portability tier == 1: conflict_score -= 15.
+  - If Apple CPU or integrated graphics: conflict_score += 4.
+- Else (GPU priority wins):
+  - If graphics tier == 5: conflict_score += 6.
+  - If graphics tier <= 2: conflict_score -= 20.
+
+CONFLICT 3: Apple Portability Preference
+Trigger: prefer_apple_for_portability == True and Gaming == False.
+Logic:
+- If CPU is Apple: conflict_score += 10.
+
+FINAL SCORE
+Final score = weighted score + (rule_score + conflict_score) / 10 - budget penalties.
+Results are sorted by final score (descending).

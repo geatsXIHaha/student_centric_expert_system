@@ -11,7 +11,7 @@ st.title("Student-Centric Laptop Expert System")
 # ----------------------------
 # FEATURES LIST (RANKING)
 # ----------------------------
-FEATURES = ["Performance", "Storage", "Battery", "Cost"]
+FEATURES = ["Performance", "Storage", "Battery", "Portability", "Cost"]
 
 if "selected_features" not in st.session_state:
     st.session_state.selected_features = []
@@ -64,6 +64,7 @@ ram_importance = st.slider("RAM Importance", 1, 5, 3)
 battery_importance = st.slider("Battery Importance", 1, 5, 3)
 storage_importance = st.slider("Storage Importance", 1, 5, 3)
 display_importance = st.slider("Display Importance", 1, 5, 3)
+portability_importance = st.slider("Portability Importance", 1, 5, 3)
 
 gaming = st.checkbox("I play games")
 content_creation = st.checkbox("I do content creation")
@@ -90,6 +91,10 @@ budget = st.radio(
 # ----------------------------
 if st.button("Recommend"):
 
+    if not st.session_state.selected_features:
+        st.warning("Please select at least one ranked priority before recommending.")
+        st.stop()
+
     # convert ranking list → dictionary
     rank_map = {f: i + 1 for i, f in enumerate(st.session_state.selected_features)}
 
@@ -97,6 +102,7 @@ if st.button("Recommend"):
         "performance_rank": rank_map.get("Performance", 4),
         "storage_rank": rank_map.get("Storage", 4),
         "battery_rank": rank_map.get("Battery", 4),
+        "portability_rank": rank_map.get("Portability", 4),
         "cost_rank": rank_map.get("Cost", 4),
 
         "cpu_importance": cpu_importance,
@@ -105,6 +111,7 @@ if st.button("Recommend"):
         "battery_importance": battery_importance,
         "storage_importance": storage_importance,
         "display_importance": display_importance,
+        "portability_importance": portability_importance,
 
         "gaming": gaming,
         "content_creation": content_creation,
@@ -115,9 +122,9 @@ if st.button("Recommend"):
 
     laptops = load_laptops()
 
-    weights, reasons = apply_rules(profile)
+    weights, reasons, rule_context = apply_rules(profile)
 
-    results = recommend_laptop(laptops, weights)
+    results = recommend_laptop(laptops, weights, rule_context)
 
     best = results[0]
 
