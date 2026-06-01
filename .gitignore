@@ -11,5 +11,8 @@ __pycache__/
 # Streamlit cache
 .streamlit/
 
+# Environment variables
+.env
+
 # Mac system files
 .DS_Store

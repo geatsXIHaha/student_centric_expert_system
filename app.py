@@ -4,6 +4,7 @@ from knowledge_base import load_laptops
 from rules import apply_rules
 from inference_engine import recommend_laptop
 from explanation import create_explanation
+from llm_explainer import generate_llm_explanation
 
 
 st.title("Student-Centric Laptop Expert System")
@@ -15,6 +16,24 @@ FEATURES = ["Performance", "Storage", "Battery", "Portability", "Cost"]
 
 if "selected_features" not in st.session_state:
     st.session_state.selected_features = []
+
+if "llm_explanations" not in st.session_state:
+    st.session_state.llm_explanations = {}
+
+if "last_results" not in st.session_state:
+    st.session_state.last_results = None
+
+if "last_profile" not in st.session_state:
+    st.session_state.last_profile = None
+
+if "last_reasons" not in st.session_state:
+    st.session_state.last_reasons = None
+
+if "llm_status" not in st.session_state:
+    st.session_state.llm_status = {}
+
+if "best_summary" not in st.session_state:
+    st.session_state.best_summary = None
 
 
 def toggle_feature(feature):
@@ -104,6 +123,7 @@ if st.button("Recommend"):
         "battery_rank": rank_map.get("Battery", 4),
         "portability_rank": rank_map.get("Portability", 4),
         "cost_rank": rank_map.get("Cost", 4),
+        "selected_ranks": st.session_state.selected_features,
 
         "cpu_importance": cpu_importance,
         "gpu_importance": gpu_importance,
@@ -126,14 +146,74 @@ if st.button("Recommend"):
 
     results = recommend_laptop(laptops, weights, rule_context)
 
+    st.session_state.last_results = results
+    st.session_state.last_profile = profile
+    st.session_state.last_reasons = reasons
+
     best = results[0]
 
-    st.success(f"{best['Brand']} {best['Model']}")
+    st.session_state.best_summary = {
+        "brand": best["Brand"],
+        "model": best["Model"],
+        "score": best["Score"],
+        "explanation": create_explanation(best, reasons)
+    }
 
-    st.metric("Score", best["Score"])
+    best_key = f"{best['Brand']} {best['Model']}"
+    st.session_state.llm_status[best_key] = "Triggering LLM..."
+    with st.spinner("Generating explanation..."):
+        best_llm_text = generate_llm_explanation(profile, best, reasons)
+    st.session_state.llm_explanations[best_key] = best_llm_text
+    st.session_state.llm_status[best_key] = "LLM response received."
 
-    st.write(create_explanation(best, reasons))
+    if best_key in st.session_state.llm_explanations:
+        st.session_state.best_summary["llm"] = st.session_state.llm_explanations[best_key]
+    elif best_key in st.session_state.llm_status:
+        st.session_state.best_summary["llm"] = st.session_state.llm_status[best_key]
 
-    st.subheader("Top 5 Recommendations")
+if st.session_state.best_summary:
+    st.success(
+        f"{st.session_state.best_summary['brand']} "
+        f"{st.session_state.best_summary['model']}"
+    )
+    st.metric("Score", st.session_state.best_summary["score"])
+    st.write(st.session_state.best_summary["explanation"])
+    if "llm" in st.session_state.best_summary:
+        st.write(st.session_state.best_summary["llm"])
 
-    st.dataframe(results[:5])
+st.subheader("Top 5 Recommendations")
+
+display_results = st.session_state.last_results
+display_profile = st.session_state.last_profile
+display_reasons = st.session_state.last_reasons
+
+if display_results:
+    for index, laptop in enumerate(display_results[:5], start=1):
+        header = f"{index}. {laptop['Brand']} {laptop['Model']} (Score {laptop['Score']})"
+        explainer_key = f"{laptop['Brand']} {laptop['Model']}"
+        with st.expander(header, expanded=False):
+            st.write(
+                "Specifications: "
+                f"CPU: {laptop['CPU']}, "
+                f"RAM: {laptop['RAM']}, "
+                f"Storage: {laptop['Storage']}, "
+                f"GPU: {laptop['GPU']}, "
+                f"Display: {laptop['Display']}, "
+                f"Price: {laptop['Price']}"
+            )
+
+            if st.button("View Explanation", key=f"explain_{index}"):
+                st.session_state.llm_status[explainer_key] = "Triggering LLM..."
+                placeholder = st.empty()
+                placeholder.info("Generating response... loading")
+                llm_text = generate_llm_explanation(display_profile, laptop, display_reasons)
+                st.session_state.llm_explanations[explainer_key] = llm_text
+                st.session_state.llm_status[explainer_key] = "LLM response received."
+                placeholder.empty()
+
+            if explainer_key in st.session_state.llm_explanations:
+                st.write(st.session_state.llm_explanations[explainer_key])
+            elif explainer_key in st.session_state.llm_status:
+                st.info(st.session_state.llm_status[explainer_key])
+else:
+    st.info("Run a recommendation to see the top 5 results.")
