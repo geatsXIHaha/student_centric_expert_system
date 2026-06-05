@@ -224,6 +224,7 @@ def recommend_laptop(df, weights, rule_context=None):
             "GPU": row["GPU"],
             "Display": row["Display"],
             "Price": row["Price"],
+            "Source": row.get("Source", "N/A"),
 
             "RuleScore": round(rule_score, 2),
             "ConflictScore": round(conflict_score, 2),

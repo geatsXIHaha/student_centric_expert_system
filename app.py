@@ -8,6 +8,24 @@ from explanation import create_explanation
 from llm_explainer import generate_llm_explanation
 
 
+def filter_budget_reasons(reasons, price_penalty):
+    filtered_reasons = []
+
+    for reason in reasons:
+        if reason.startswith("Budget set to ") and "Soft penalty applied for exceeding range." in reason:
+            if price_penalty > 0:
+                filtered_reasons.append(reason)
+            else:
+                filtered_reasons.append(
+                    reason.replace(" Soft penalty applied for exceeding range.", "")
+                )
+            continue
+
+        filtered_reasons.append(reason)
+
+    return filtered_reasons
+
+
 # Function to encode local images
 def get_base64_of_bin_file(bin_file):
     with open(bin_file, 'rb') as f:
@@ -219,6 +237,10 @@ if st.button("Recommend"):
         st.warning("Please select at least one ranked priority before recommending.")
         st.stop()
 
+    st.session_state.llm_explanations = {}
+    st.session_state.llm_status = {}
+    st.session_state.best_summary = None
+
     # convert ranking list → dictionary
     rank_map = {f: i + 1 for i, f in enumerate(st.session_state.selected_features)}
 
@@ -256,18 +278,19 @@ if st.button("Recommend"):
     st.session_state.last_reasons = reasons
 
     best = results[0]
+    best_reasons = filter_budget_reasons(reasons, best.get("Penalty", 0))
 
     st.session_state.best_summary = {
         "brand": best["Brand"],
         "model": best["Model"],
         "score": best["Score"],
-        "explanation": create_explanation(best, reasons)
+        "explanation": create_explanation(best, best_reasons)
     }
 
     best_key = f"{best['Brand']} {best['Model']}"
     st.session_state.llm_status[best_key] = "Triggering LLM..."
     with st.spinner("Generating explanation..."):
-        best_llm_text = generate_llm_explanation(profile, best, reasons)
+        best_llm_text = generate_llm_explanation(profile, best, best_reasons)
     st.session_state.llm_explanations[best_key] = best_llm_text
     st.session_state.llm_status[best_key] = "LLM response received."
 
@@ -296,6 +319,7 @@ if display_results:
     for index, laptop in enumerate(display_results[:5], start=1):
         header = f"{index}. {laptop['Brand']} {laptop['Model']} (Score {laptop['Score']})"
         explainer_key = f"{laptop['Brand']} {laptop['Model']}"
+        laptop_reasons = filter_budget_reasons(display_reasons, laptop.get("Penalty", 0))
         with st.expander(header, expanded=False):
             st.write(
                 "Specifications: "
@@ -304,14 +328,15 @@ if display_results:
                 f"Storage: {laptop['Storage']}, "
                 f"GPU: {laptop['GPU']}, "
                 f"Display: {laptop['Display']}, "
-                f"Price: {laptop['Price']}"
+                f"Price: {laptop['Price']}, "
+                f"Source: {laptop.get('Source', 'N/A')}"
             )
 
             if st.button("View Explanation", key=f"explain_{index}"):
                 st.session_state.llm_status[explainer_key] = "Triggering LLM..."
                 placeholder = st.empty()
                 placeholder.info("Generating response... loading")
-                llm_text = generate_llm_explanation(display_profile, laptop, display_reasons)
+                llm_text = generate_llm_explanation(display_profile, laptop, laptop_reasons)
                 st.session_state.llm_explanations[explainer_key] = llm_text
                 st.session_state.llm_status[explainer_key] = "LLM response received."
                 placeholder.empty()

@@ -48,6 +48,7 @@ def build_prompt(profile, laptop, reasons):
             "gpu": laptop.get("GPU"),
             "display": laptop.get("Display"),
             "price": laptop.get("Price"),
+            "source": laptop.get("Source"),
             "score": laptop.get("Score"),
         },
     }

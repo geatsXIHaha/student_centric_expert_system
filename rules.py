@@ -59,7 +59,31 @@ def apply_rules(profile):
         4: 0.10,
         5: 0.05
     }
+    # Fill unranked priorities with next rank
 
+    rank_fields = [
+        "performance_rank",
+        "storage_rank",
+        "battery_rank",
+        "portability_rank",
+        "cost_rank"
+    ]
+
+    # Get ranks that user actually selected
+    selected_ranks = [
+        profile[field]
+        for field in rank_fields
+        if field in profile and profile[field] is not None
+    ]
+
+    # Determine next rank
+    next_rank = max(selected_ranks) + 1 if selected_ranks else 1
+
+    # Assign next rank to any missing priorities
+    for field in rank_fields:
+        if field not in profile or profile[field] is None:
+            profile[field] = next_rank
+            
     # -----------------------------
     # Core ranking preferences
     # -----------------------------
@@ -155,7 +179,7 @@ def apply_rules(profile):
     weights["budget_max"] = budget_max
 
     reasons.append(
-        f"Budget set to {budget_label} (RM {budget_min} - RM {budget_max}). "
+        f"Budget set to {budget_label}. "
         "Soft penalty applied for exceeding range."
     )
 

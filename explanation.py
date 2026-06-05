@@ -10,6 +10,7 @@ RAM: {laptop['RAM']}
 Storage: {laptop['Storage']}
 GPU: {laptop['GPU']}
 Price: {laptop['Price']}
+Source: {laptop.get('Source', 'N/A')}
 
 Reasons:
 """
