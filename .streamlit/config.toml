@@ -1,0 +1,15 @@
+[theme]
+# Forces dark mode defaults
+base="dark"
+
+# The electric blue from your glowing waves
+primaryColor="#00E5FF" 
+
+# Pitch black background
+backgroundColor="#000000"
+
+# Very dark grey for the input boxes and sidebar so they don't blend in
+secondaryBackgroundColor="#111111"
+
+# Pure white text for readability
+textColor="#FFFFFF"
